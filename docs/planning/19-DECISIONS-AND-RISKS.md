@@ -19,6 +19,9 @@ Record of closed decisions (ADRs), documented limitations, the risk register and
 | ADR-10 | Sub-millisecond compute contract ([15](15-PERFORMANCE-ENGINEERING.md)) | Prompt priority on millisecond-scale decisions | Millisecond-class targets | Zero-allocation hot paths, CPU pinning, no syscalls on tick path | Measured impossibility on reference hardware |
 | ADR-11 | Webhooks/postbacks untrusted unless cryptographically signed; only Zerodha postbacks (SHA-256 checksum) count as authenticated | Upstox webhook policy is a URL filter; Dhan postback signing not documented | Trust all broker callbacks | Dhan/Upstox callbacks are redundant deduplicated inputs corroborated by authenticated streams/REST | Broker publishes a signing scheme |
 | ADR-12 | Versioned length-delimited frames over Unix domain sockets between adapter processes and core | Process isolation per broker; binary typed IPC without JSON | Shared memory rings; gRPC | Schema negotiation at connect; bounded buffers; disconnect semantics | Profiling shows IPC dominates the frame→state budget |
+| ADR-13 | Browser transport: one WebSocket per client, JSON field-level deltas on four lanes (P0 account, P1 event, P2 display, P3 background), per-subscription sequence, snapshot/cursor resync, server-enforced throttling ([14](14-DASHBOARD-UX.md)) | Browser WebSocket has no backpressure; order/risk events must never be coalesced while display values may be; token-efficient and debuggable encoding wanted first | Row-level full upserts; binary (MessagePack/Protobuf) from day one; SSE + REST polling; GraphQL subscriptions | Encode budget per row in [15](15-PERFORMANCE-ENGINEERING.md); publisher isolated from shards; client store applies patches per animation frame | Measured encode/parse time dominating L7 or L9 → binary encoding ADR |
+| ADR-14 | TradingView Lightweight Charts 5.x behind a platform `ChartAdapter`; live bars via `update()` only, history via paged `setData`, corrections via `update(bar, true)`, annotations via price lines, `createSeriesMarkers` and series primitives | Official, Apache-2.0, canvas-rendered, incremental API verified against 5.2.1; annotation needs (zones, order blocks) exceed built-ins | Full TradingView Charting Library (licensing); custom WebGL charts; SVG/D3 | Attribution required; exact release pinned; IST shift at adapter boundary; adapter tests fail on API drift | Required capability missing or license change |
+| ADR-15 | Tick-driven active bars for every enabled interval in one shard apply, reconciled against child aggregation at child close | All timeframes must advance on each tick and stay mutually consistent; waiting for 1-minute close adds up to 60 s latency to higher intervals | Parents updated only on child close; browser-side aggregation | O(T) per observation within L3; `ACCUMULATOR_MISMATCH` flag; child-derived bar authoritative when final | None expected |
 
 ## Known limitations
 
@@ -31,7 +34,9 @@ Record of closed decisions (ADRs), documented limitations, the risk register and
 | Dhan | Forever/OCO documented for CNC/MTF only; deep-feed connection sharing undocumented; bid/ask prose inconsistencies in depth docs; 24-hour token with Web-origin-only renewal; conditional triggers equities/indices only | Protection certification per product; fixture certification; credential coordinator; optional use |
 | Regulation | BSE operational circulars not independently fetched; SEBI December 2026/February 2027 changes pending; algo message counting semantics per broker unconfirmed | Effective-dated rule sets with activation gates; conservative counting |
 | Data rights | Broker feed access does not establish redistribution, index constituent/weight licensing or perpetual storage | G09; single-owner deployment assumption |
-| Performance | No benchmark or live latency measured; sub-ms budgets are unproven | M6 certification; capacity report on failure |
+| Performance | No benchmark or live latency measured; sub-ms budgets and the reference workload (20 k/s mean, 80 k/s burst) are design assumptions | M6 certification; capacity report on failure; workload replaced by measured peaks at M4 |
+| Frontend | Browser paint, WebSocket delivery and JSON parsing are not sub-ms; tick→screen is bounded (L8/L8c), not sub-ms | Measured and reported separately; never blocks CALC/EXEC |
+| Charts | Lightweight Charts formats UTC only, has no built-in zone/rectangle drawing, and its plugin API evolves across minor releases | IST shift at adapter; series primitives for zones; pinned release with drift tests |
 
 ## Risk register
 
@@ -57,6 +62,10 @@ Record of closed decisions (ADRs), documented limitations, the risk register and
 | R-18 | Sub-ms targets unattainable on chosen hardware | M/M | CPU pinning, allocation audit, capacity report, tighter admission | Performance | p99 budgets at M6 |
 | R-19 | Zerodha Personal app lacks data/order-update channels | M/M | G13/G14 before enabling; Connect tier | Owner | profile/entitlement check |
 | R-20 | Instrument token reuse after expiry (Zerodha, Upstox exchange tokens) | M/M | Daily master snapshots, master_version in every mapping, quarantine reused tokens | Instruments | mapping_reused_token |
+| R-21 | Browser saturation at large visible universes (many charts/tiles) degrades L9 and hides fresh data | M/M | Virtualization, dirty-tile canvas, rAF batching, Web Worker decode, server cadence reduction, STALE banner | UI | render_frame_p95 > 16 ms; superseded_updates rising |
+| R-22 | Multi-timeframe accumulator diverges from child aggregation (ordering, late ticks, epoch resets) | M/M | Child-derived bar authoritative at close; `ACCUMULATOR_MISMATCH` counter; property tests | Candle engine | accumulator_mismatch > 0 |
+| R-23 | Chart library API drift or license change breaks the adapter | L/M | Exact release pin, adapter contract tests, ADR before upgrade | UI | adapter test failure on dependency bump |
+| R-24 | Memory budget exceeded as covered universe or enabled intervals grow | M/M | Per-instrument/process budgets, bounded lookbacks, RSS alarms 75/85/95%, coverage halt | Performance | rss_utilization |
 
 ## Unresolved external requirements
 

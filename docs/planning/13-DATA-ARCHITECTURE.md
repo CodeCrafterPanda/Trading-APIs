@@ -70,7 +70,7 @@ Do not rely on background merge deduplication for immediate account correctness.
 
 ## In-memory state and checkpoints
 
-Instrument shards store dense arrays/maps of prices, field ages, feature states, bar accumulators and bounded rolling windows. Sector workers retain constituent contributions and sufficient statistics. Account actors cache reconciled ledger state, funds snapshots, allocations and reservations. Immutable snapshots are versioned; raw mutable pointers never cross ownership boundaries.
+Instrument shards store dense arrays/maps of prices, field ages, feature states, one bar accumulator per enabled interval and bounded rolling windows, within the per-instrument and per-process memory budgets in [15](15-PERFORMANCE-ENGINEERING.md); bars beyond the resident lookback are served from the `candles` dataset. Sector workers retain constituent contributions and sufficient statistics. Account actors cache reconciled ledger state, funds snapshots, allocations and reservations. Immutable snapshots are versioned; raw mutable pointers never cross ownership boundaries.
 
 Market checkpoints accelerate restart but do not establish fresh data. On restore, mark stale, validate master/config versions and warm from live/history. Account recovery uses durable PostgreSQL and broker reconciliation. Persisting a runtime monotonic deadline cannot extend an intent after reboot; reconstruct from UTC under clock-health policy or expire it.
 

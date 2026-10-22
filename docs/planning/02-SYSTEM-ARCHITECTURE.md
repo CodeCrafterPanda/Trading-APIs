@@ -46,7 +46,7 @@ Choose an Indian region by measured RTT and packet loss to each broker's endpoin
 | 1 Ingestion | Adapter I/O task per socket (Dhan ≤5, Upstox ≤2/5, Zerodha ≤3 sockets) | Frames → timestamped buffers | Reserved socket capacity; reconnect on irrecoverable overflow |
 | 2 Decode/normalize | Adapter bounded decode workers; one decoder per wire format | Frames → typed observations | Quarantine malformed frames; quality event |
 | 3 Instrument state | Dedicated core threads, stable hash shard | Observation → state version | Preserve ordering; age limit disables dependent execution |
-| 4 Candles | Same shard ownership as instrument | State/trade observations → bar revisions | Gap flag instead of fabricated completeness |
+| 4 Candles | Same shard ownership as instrument; one active accumulator per enabled interval updated in the same apply | State/trade observations → bar revisions for all intervals + geometry | Gap flag instead of fabricated completeness |
 | 5 Sectors | Core aggregation owner per sector group | Changed contributions → sector snapshots | Coalesce deltas only with contribution accounting |
 | 6 Stock ranking | Core ranking owner | Feature change → sorted index update | Bounded refresh queue with visible rank age |
 | 7 Scanners | Dependency graph on shard/sector/chain workers | Feature changes → candidate evidence | Disable optional expensive nodes before essential risk |
@@ -56,10 +56,10 @@ Choose an Indian region by measured RTT and packet loss to each broker's endpoin
 | 11 Routing/execution | Fenced gateway per account inside its adapter process | Committed command → broker result | Priority budget; uncertain outcome held |
 | 12 Order/position updates | Account actor | Stream/postback/snapshot/fill → ledger/risk revision | Never drop; new entries halt if persistence unavailable |
 | 13 Persistence | Separate process/threads | Analytics batches and audit outbox → storage | Analytics spool bounded; ledger uses separate synchronous path |
-| 14 Dashboard publishing | Control process | Latest state + account events → view deltas | Coalesce market display; durable resync for account state |
+| 14 Dashboard publishing | Control process; one publisher thread per client group reading immutable snapshots and per-view dirty sets | Latest state + account events → field-level view deltas on lanes P0–P3 with per-subscription sequences ([14](14-DASHBOARD-UX.md)) | Coalesce P2 display, preserve P0/P1, disconnect slow consumers with resync; never blocks workers 3–12 |
 | 15 Health/telemetry | Dedicated lightweight collectors | Counters/spans → health snapshot | Sampling of diagnostics, not safety state |
 
-All workers use bounded queues sized from peak rate × acceptable burst duration. Capacity is a resource parameter, not a universe limit. Every queue reports depth, oldest age, enqueue failures and shedding reason. Each domain has one owner; readers receive immutable snapshots or messages, never mutable shared objects.
+All workers use bounded queues sized from peak rate × acceptable burst duration against the reference workload and memory budgets in [15](15-PERFORMANCE-ENGINEERING.md). Capacity is a resource parameter, not a universe limit. Every queue reports depth, oldest age, enqueue failures and shedding reason. Each domain has one owner; readers receive immutable snapshots or messages, never mutable shared objects. Nothing polls: every worker is driven by its input queue or a timer wheel (bar boundaries, lateness windows, chain cadence).
 
 Option-chain assembly is a shared chain worker inside worker 7's dependency graph: for Dhan/Upstox it merges provider chain snapshots with streamed selected strikes; for Zerodha it builds the chain from the instrument master plus quote/stream fields and computes IV/Greeks locally ([04](04-BROKER-ADAPTER-CONTRACTS.md) §4, [10](10-EQUITY-FUTURES-OPTIONS.md)).
 

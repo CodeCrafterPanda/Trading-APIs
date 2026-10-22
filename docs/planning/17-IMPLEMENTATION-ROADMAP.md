@@ -13,7 +13,7 @@ Ordered phases, epics and milestones for building the platform module by module.
 | E05 Upstox adapter | Eight interfaces: Protobuf V3 feed, Market Quote V3, history V3, chain/Greeks, V3 orders, portfolio stream/webhook, funds | L |
 | E06 Zerodha adapter | Eight interfaces: BE binary feed + text order frames, quotes, history, ChainBuilder input, orders/GTT/alerts, signed postbacks, portfolio, margins | L |
 | E07 Market data engine | Subscription planner, shards, state, quality, failover | L |
-| E08 Candle engine | History scheduler, local bars, aggregation, revisions, reconciliation | M |
+| E08 Candle engine | History scheduler, tick-driven bars for all intervals, geometry, aggregation, revisions, regeneration | M |
 | E09 Sector & ranking engine | Contributions, sufficient statistics, rank indexes, profiles | M |
 | E10 Scanner catalog | Feature DAG, 56 detectors, candidate envelopes | L |
 | E11 Regime & opportunity engine | Regime axes, candidate lifecycle, scoring, reevaluation | M |
@@ -21,8 +21,8 @@ Ordered phases, epics and milestones for building the platform module by module.
 | E13 Risk engine | Policies, allocations, gates, reservations, protection state, emergency modes | L |
 | E14 OMS, gateways & reconciliation | Intent/command ledger, fenced gateways, uncertainty handling, exit controller, reconciliation | L |
 | E15 Data architecture & persistence | PostgreSQL schema/migrations, ClickHouse datasets, outbox, retention, backup/restore | M |
-| E16 Dashboard & control API | Control endpoints, view streams, fourteen screens, accessibility | L |
-| E17 Performance, telemetry & ops | Instrumentation, benchmark harness, overload ladder, CPU pinning, standby/fencing, runbooks | M |
+| E16 Dashboard & control API | Control endpoints, lane-based delta publisher, client sync manager, Lightweight Charts adapter and annotations, fourteen screens, accessibility | L |
+| E17 Performance, telemetry & ops | Named-path instrumentation L1–L9, benchmark harness on the reference Indian workload, memory/staleness budgets, overload ladder, CPU pinning, standby/fencing, runbooks | M |
 | E18 Compliance gates & commissioning | Gate register G01–G14, evidence capture, read-only and live commissioning procedures | M |
 
 ## Phase table
@@ -32,7 +32,7 @@ Ordered phases, epics and milestones for building the platform module by module.
 | P0 Foundations | Buildable workspace with frozen contracts and fixture harness | E01, E15 (schema skeleton), E17 (telemetry skeleton) | Pack approved; toolchain pinned | **M0 contracts frozen**: contract crate v1 tagged, IPC schema negotiated, CI green, three wire-format fixture loaders exist | None |
 | P1 Instruments & sessions | Canonical universe and calendar | E02, E03 (secret storage, roles) | M0 | Masters for all three brokers import and diff; restrictions tri-state; sector catalog versioned; session rules CURRENT_2026_08_03_CAS and PENDING sets loaded with activation gates | G07, G09 (licensing of constituents) |
 | P2 Read-only adapters | Three adapters passing the shared conformance suite offline | E04, E05, E06, E03 (auth flows), E12 (ChainBuilder, Greeks) | P1 | **M1 three read-only adapters certified offline**: identical semantic suite passes per broker on fixtures; mutation methods implemented but disabled by capability flags | G02 (auth), G05, G06, G13 |
-| P3 Market core | Live intelligence from fixtures, then from read-only feeds | E07–E11, E15 (analytics), E16 (read-only screens) | M0 + fixture replay; M1 for live | **M2 market intelligence live read-only**: all 56 detectors, sector/regime/opportunity engines, candles and dashboard run against entitled live feeds with coverage/quality visible; sub-ms budgets met on fixtures | G05, G09 |
+| P3 Market core | Live intelligence from fixtures, then from read-only feeds | E07–E11, E15 (analytics), E16 (read-only screens, publisher, charts), E17 (path telemetry, budgets) | M0 + fixture replay; M1 for live | **M2 market intelligence live read-only**: all 56 detectors, sector/regime/opportunity engines, all-interval candles and the live dashboard (charts updating by `update()`, heatmap/scanner/rankings by deltas) run against entitled live feeds with coverage/quality visible; L1–L5 and L9 budgets met on fixtures | G05, G09 |
 | P4 Execution core | Durable, fenced, reconciled OMS and risk, proven offline | E13, E14, E15 (ledger), E16 (ticket/orders/positions/risk screens) | M1 | **M3 execution core passes fault suite**: all fault tests in [11](11-ORDER-EXECUTION-ENGINE.md) and [12](12-RISK-MANAGEMENT.md) pass; no path from strategy to broker bypasses ledger+risk | G10 (durability/fencing) |
 | P5 Commissioning | Account-backed certification, per broker and per product, read-only first | E18, E04–E06 (live fixes) | M2, M3, owner authorization | **M4 read-only live commissioning complete per broker**, then **M5 live execution enabled per broker/product** after bounded live checks | G01–G14 |
 | P6 Hardening | Measured capacity, failover drills, operations | E17, E18 | M4 | **M6 performance certified** at 2× measured peak; standby fencing drill passed; runbooks executed once | G10, G11 |
@@ -88,13 +88,13 @@ Fixture-driven development breaks the apparent E04–E06 → E07 dependency: E07
 
 **P2.** Per adapter (E04 ∥ E05 ∥ E06): describe_capabilities/health/start → credential flow → live feed decoder with golden and malformed fixtures → subscription reconciliation → REST snapshot → historical with chunking → options data (provider chain, or ChainBuilder for Zerodha) → order-update stream + ingress (Zerodha checksum) → portfolio/funds reads → trading methods implemented behind disabled capability flags → shared conformance suite. E12 ChainBuilder and LOCAL_MODEL Greeks run alongside E06.
 
-**P3.** E07 planner and shards → E08 bars/aggregation/revisions → E09 contributions/ranks → E10 shared features then detector families in order: price/momentum, volume/liquidity, structure, sector, volatility, derivatives → E11 regime, candidates, scoring → E15 analytics outbox → E16 read-only screens (dashboard, heatmap, drilldown, scanner, chart, F&O scanner, chain, opportunities, broker settings, config, health).
+**P3.** E07 planner and shards → E08 one-minute bars → multi-interval accumulators and geometry (T-E08-09/10) → aggregation/revisions → E09 contributions/ranks → E10 shared features then detector families in order: price/momentum, volume/liquidity, structure, sector, volatility, derivatives → E11 regime, candidates, scoring → E15 analytics outbox → E17 path telemetry and memory/staleness budgets (T-E17-09/10) → E16 publisher (T-E16-02) → client sync manager (T-E16-11) → chart adapter and annotations (T-E16-12/13) → read-only screens (dashboard, heatmap, drilldown, scanner, chart, F&O scanner, chain, opportunities, broker settings, config, health).
 
 **P4.** E15 ledger tables and constraints → E13 policy model, allocations, gate chain, reservations → E14 intent/command lifecycle, fenced gateway per account, submission uncertainty, update merge, exit controller, protection, reconciliation, account lease → E16 ticket/orders/positions/risk screens and emergency controls → fault suite.
 
 **P5.** E18 gate register populated with evidence → per broker: read-only live certification (identity, entitlements, units, representative instruments, live decode, history, chain, streams) → per broker and product: bounded live commissioning (LIMIT, SL-LIMIT, modify, cancel, child orders, protection, reconciliation) → enable route.
 
-**P6.** E17 benchmark at measured 2× peak, overload ladder, CPU pinning validation → standby promotion with fencing drill → runbook rehearsal → retention and restore drill.
+**P6.** E17 benchmark at measured 2× peak across all named paths L1–L9 (including 8-browser and replay-determinism scenarios), overload ladder, CPU pinning validation → standby promotion with fencing drill → runbook rehearsal → retention and restore drill.
 
 ## Parallelization guidance
 
@@ -110,7 +110,7 @@ Fixture-driven development breaks the apparent E04–E06 → E07 dependency: E07
 |---|---|
 | M0 | Contract crate conformance and error taxonomy — [04](04-BROKER-ADAPTER-CONTRACTS.md) acceptance; stack pinning — [03](03-TECH-STACK-DECISIONS.md) acceptance |
 | M1 | Same semantic suite per adapter — [04](04-BROKER-ADAPTER-CONTRACTS.md) conformance; feed fixtures — [05](05-MARKET-DATA-ENGINE.md) acceptance; interval boundaries — [06](06-CANDLE-ENGINE.md) acceptance |
-| M2 | [07](07-SECTOR-HEATMAP.md), [08](08-MARKET-SCANNER-CATALOG.md), [09](09-REGIME-AND-RANKING-ENGINE.md), [10](10-EQUITY-FUTURES-OPTIONS.md), [14](14-DASHBOARD-UX.md) acceptance; crash isolation and failover — [02](02-SYSTEM-ARCHITECTURE.md) acceptance |
+| M2 | [06](06-CANDLE-ENGINE.md), [07](07-SECTOR-HEATMAP.md), [08](08-MARKET-SCANNER-CATALOG.md), [09](09-REGIME-AND-RANKING-ENGINE.md), [10](10-EQUITY-FUTURES-OPTIONS.md), [14](14-DASHBOARD-UX.md) acceptance (sync protocol and chart adapter included); crash isolation and failover — [02](02-SYSTEM-ARCHITECTURE.md) acceptance; L1–L5, L9 on fixtures — [15](15-PERFORMANCE-ENGINEERING.md) |
 | M3 | Fault tests — [11](11-ORDER-EXECUTION-ENGINE.md) and [12](12-RISK-MANAGEMENT.md) acceptance; ledger constraints and restore — [13](13-DATA-ARCHITECTURE.md) acceptance |
 | M4/M5 | Gate register G01–G14 verified per broker/product — [16](16-SECURITY-AND-COMPLIANCE.md) launch gate register; security tests — [16](16-SECURITY-AND-COMPLIANCE.md) acceptance |
 | M6 | Benchmark envelope and pass criteria — [15](15-PERFORMANCE-ENGINEERING.md) |

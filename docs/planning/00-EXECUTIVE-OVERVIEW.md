@@ -2,7 +2,7 @@
 
 Issued **22 October 2026** (revision 2). Official documentation researched 21–22 October 2026 (Dhan, Upstox, NSE/SEBI) and 22 October 2026 (Zerodha Kite Connect v3). Timezone Asia/Kolkata. Status: **implementation specification; no application implemented or live account certified**.
 
-Build a new standalone platform with **three independent, complete broker adapters — DhanHQ, Upstox and Zerodha Kite Connect** — each implementing all eight adapter interfaces. Use Rust for ingestion, market state, candles, sector intelligence, scanners, opportunity ranking, risk and order management; TypeScript/React for the dashboard; PostgreSQL for transactional truth; ClickHouse and Parquet for asynchronous analytics. The compute contract is **sub-millisecond**: every in-memory stage on the market path has a sub-ms p50 and p99 budget; only durable commit and network exceed 1 ms ([15](15-PERFORMANCE-ENGINEERING.md)).
+Build a new standalone platform with **three independent, complete broker adapters — DhanHQ, Upstox and Zerodha Kite Connect** — each implementing all eight adapter interfaces. Use Rust for ingestion, market state, candles, sector intelligence, scanners, opportunity ranking, risk and order management; TypeScript/React for the dashboard; PostgreSQL for transactional truth; ClickHouse and Parquet for asynchronous analytics. The compute contract is **sub-millisecond and incremental**: every in-memory stage on the market path has a sub-ms p50 and p99 budget, no event triggers a full recalculation, and end-to-end latency is measured separately for ingestion, calculation, publication and browser rendering (named paths L1–L9 in [15](15-PERFORMANCE-ENGINEERING.md)); only durable commit, broker network and browser paint exceed 1 ms.
 
 ## Pack-wide conventions
 
@@ -32,8 +32,9 @@ The platform covers NSE and BSE cash equities, indices as intelligence inputs, a
 | Durability | PostgreSQL synchronous intent/reservation commit before network submission | Intent survives crashes and ambiguous sends |
 | Options data | Provider chains (Dhan, Upstox) plus platform ChainBuilder with LOCAL_MODEL Black-76 IV/Greeks (required for Zerodha) | Zerodha documents no chain/Greeks endpoint; one chain contract for all brokers |
 | Analytics | ClickHouse batches and compressed Parquet | Scans and bulk persistence stay off the decision path |
-| UI | React, TypeScript, Vite, selector stores, virtualized tables, canvas charts | Incremental rendering with bounded views |
-| Transport | Typed Unix-socket IPC, bounded queues; browser WebSocket deltas | No Kafka/Redis hop per tick |
+| UI | React, TypeScript, Vite, selector stores, virtualized tables, canvas heatmap, Lightweight Charts 5.x behind a chart adapter with `update()`-only live bars | Incremental rendering with bounded views; no chart or dataset reinitialization per tick |
+| Transport | Typed Unix-socket IPC, bounded queues; browser WebSocket with lanes (P0 account, P1 event, P2 display, P3 background), field-level deltas, per-subscription sequences and snapshot resync | No Kafka/Redis hop per tick; slow browsers never block calculation or execution |
+| Candles | Tick-driven active bars for every enabled interval (1/2/3/5/10/15/30/60 min, daily) updated in one shard apply, with derived geometry | All timeframes share one state version; no waiting for bar close |
 | Deployment | Linux, pinned cores, approved static egress per broker, warm passive standby | Resource isolation and controlled takeover |
 | Failover | Automatic validated market-data source switch among three adapters; execution pinned to the owning account | A different broker cannot close the original account's position |
 | Order policy | LIMIT and SL-LIMIT automated initially; MARKET/SL-M only with broker market protection and certification | All three brokers now reject unprotected market orders |
@@ -81,7 +82,7 @@ Dhan native intraday intervals are 1/5/15/25/60 minutes; Zerodha lacks 2-minute 
 
 ## Acceptance and success measures
 
-Compute: frame receive → candidate decision p50 0.5 ms, p95 2 ms, p99 5 ms; decision → request write including durable commit p50 2 ms, p95 5 ms, p99 10 ms; every stage budget in [15](15-PERFORMANCE-ENGINEERING.md). Record sample count, observed maximum, queue age, event loss, CPU, memory and clock uncertainty; measure broker ACK and fill distributions separately per broker.
+Performance: every named path in [15](15-PERFORMANCE-ENGINEERING.md) met at the reference Indian-market workload — tick→calculation L1 p50 0.20 ms / p99 2 ms; tick→decision L2 p50 0.5 ms / p99 5 ms; candle update L3 p99 0.10 ms across all enabled intervals; heatmap update L4 p99 0.30 ms; scanner detector L5 p99 0.10 ms; order submission L6 p50 2 ms / p99 10 ms including durable commit; priority tick→screen L8 p99 150 ms; coalesced state→screen L8c p99 500 ms; render frame L9 p95 16 ms. Record sample count, observed maximum, queue age, event loss, CPU, memory (within the stated RSS budgets) and clock uncertainty; measure broker ACK and fill distributions separately per broker; prove zero allocation and zero syscalls per observation and replay determinism.
 
 Functional: all eight interfaces implemented for all three brokers with independent conformance evidence; instrument mapping without ambiguity; explainable scanner outputs; no submission on unknown state; correct partial-fill accounting; successful crash/reconnect reconciliation; data-source failover between any two adapters without baseline contamination. Read-only commissioning precedes separately authorized live commissioning per broker and product.
 

@@ -30,11 +30,12 @@ Rust's ownership model supports zero-allocation per-tick processing but proves n
 | Options math | Platform `greeks` crate: Black-76 on futures/forward price, bounded IV solver (bisection then Newton), convergence flags | Used for Zerodha, cross-check for others; fixtures from provider values |
 | Database access | sqlx for PostgreSQL with checked queries and bounded pools | No query inside tick/feature processing; dedicated ledger pool |
 | Backend metrics | Prometheus counters/histograms (10 µs buckets below 1 ms) and OpenTelemetry traces | Sampled spans; unsampled safety counters |
-| UI | TypeScript/React/Vite, external-store selectors, virtualized grids | Stable row IDs, immutable snapshots, bounded subscriptions |
-| Charts | TradingView Lightweight Charts behind a platform chart adapter | Verify license/attribution and release at kickoff |
-| Testing | Rust unit/property/fuzz tests, three wire-format fixture suites, fault injection; browser interaction/performance tests | No brokerage writes in routine CI |
+| UI | TypeScript/React/Vite, `useSyncExternalStore` selectors, virtualized grids, rAF-batched delta application, optional Web Worker decode | Stable row IDs, immutable snapshots, bounded subscriptions; no HTTP polling |
+| UI transport | WebSocket, JSON field-level deltas on lanes P0–P3 with per-subscription sequence and snapshot resync (ADR-13) | Binary encoding only after measured need |
+| Charts | TradingView Lightweight Charts 5.x (verified 5.2.1) behind a platform `ChartAdapter`: `addSeries`, `update()`/`update(bar, true)`, panes, `createPriceLine`, `createSeriesMarkers`, series primitives (ADR-14) | Apache-2.0 with attribution; exact release pinned; adapter tests fail on API drift |
+| Verification | No unit tests (backend or frontend). Evidence comes from three wire-format fixture suites, property/fuzz checks on decoders and invariants, fault injection, benchmark harness and commissioning | No brokerage writes in routine CI |
 
-These are selected packages, not an open shortlist. Exact releases are a dependency-lock task. The chart adapter must support streaming candle revisions, gaps, multiple timeframes, source badges and an accessible companion table; heatmaps use a separate canvas renderer. If licensing or a required capability fails verification, record an ADR before replacing a library.
+These are selected packages, not an open shortlist. Exact releases are a dependency-lock task. The chart adapter must support streaming candle revisions via incremental `update()` (never `setData` per tick), historical back-pagination, corrections of non-last bars, gaps, multiple timeframes, price lines for entry/stop/target/levels, markers for signals and fills, primitive-drawn zones, source badges and an accessible companion table ([14](14-DASHBOARD-UX.md)); heatmaps use a separate canvas renderer. If licensing or a required capability fails verification, record an ADR before replacing a library.
 
 ## Storage comparison and decision
 
@@ -56,7 +57,7 @@ Account risk and OMS use one writer per broker account. A global exposure coordi
 
 ## Browser and delivery decisions
 
-Browser WebSocket has no application backpressure; the server coalesces market display updates, bounds buffers, disconnects persistently slow consumers and offers snapshot resync. Order/risk updates use priority delivery and durable read models. [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+Browser WebSocket has no application backpressure; the server coalesces P2 display updates, bounds buffers, disconnects persistently slow consumers and offers snapshot resync. P0 order/risk and P1 event streams use priority delivery and durable read models; protocol detail is in [14](14-DASHBOARD-UX.md). [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
 
 Selector-based external stores with stable immutable snapshots keep unrelated rows from rerendering. [React external stores](https://react.dev/reference/react/useSyncExternalStore)
 

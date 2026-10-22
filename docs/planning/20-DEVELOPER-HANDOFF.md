@@ -20,6 +20,10 @@ platform/
     persistence/            # sqlx ledger access, ClickHouse outbox, Parquet export, retention jobs
     telemetry/              # histograms (10 µs buckets), counters, tracing, health snapshot
   ui/                       # Vite + React + TypeScript dashboard
+    src/sync/               # WebSocket client, subscription manager, lanes, resync, optional worker decode (14)
+    src/stores/             # external stores per stream, per-row selectors, rAF batch apply
+    src/chart/              # ChartAdapter over lightweight-charts 5.x, primitives, markers, price lines (ADR-14)
+    src/heatmap/            # canvas renderer with dirty-tile repaint
   fixtures/
     dhan/  upstox/  zerodha/  # golden, malformed and boundary frames; REST samples (redacted)
   migrations/               # PostgreSQL migrations, ClickHouse DDL
@@ -69,6 +73,18 @@ Pinned stable Rust toolchain in `rust-toolchain.toml`; `Cargo.lock` committed; d
 7. Broker wire fields never cross the adapter boundary; unknown enums are quarantined, not mapped.
 8. Every observation, bar, feature, candidate and decision carries versions, source epoch and quality.
 9. Mutation methods are callable only through the fenced gateway with a CommittedOrderCommand; no other code path constructs a broker write.
+10. Incremental or nothing: indicators by recurrence, extrema by monotonic deque, medians by order-statistic structures, sectors by subtract-old/add-new, ranks by ordered index; a full recomputation is a maintenance action off the tick path, never an event handler.
+11. All enabled candle intervals update in the same shard apply from the same observation; parents never wait for a child close to move.
+
+## Coding rules for the browser
+
+1. No `setInterval`/HTTP polling for data; everything arrives on the lane protocol in [14](14-DASHBOARD-UX.md).
+2. One external store per stream; selectors per row/cell; rows are immutable and replaced only when a field changes.
+3. Apply deltas inside one `requestAnimationFrame` batch; latest value wins per row/series within a frame.
+4. Charts: `createChart` once per mount; live bars via `series.update()`; `setData` only for the initial load and history pages; corrections via `update(bar, true)`; `chart.remove()` on unmount.
+5. Tables virtualize; heatmaps paint dirty tiles on canvas; bounded markers, price lines and primitives per chart.
+6. Every view shows STALE/resyncing state explicitly; a green socket indicator never implies fresh data.
+7. Shift UTC→IST once at the chart adapter boundary; never per render.
 
 ## Configuration model
 
@@ -82,25 +98,26 @@ Server-side envelope encryption with a managed key service; token metadata separ
 
 Fixture replay drives protocol tests only (C5): recorded or generated frames for the three wire formats, redacted REST samples, synthetic order-update sequences and fault scripts. A `no-network` CI guard fails any test that opens a socket to a broker host. There is no simulated exchange, no paper account and no historical trading replay.
 
-## Test taxonomy
+## Verification taxonomy
+
+Unit tests are **not required** anywhere in the platform — neither Rust crates nor the React UI. Verification relies on the evidence kinds below plus commissioning evidence (E18).
 
 | Kind | Scope | Required where |
 |---|---|---|
-| Unit | Pure functions, serializers, math | Every crate |
 | Property | Candle aggregation invariants, reservation conservation, allocation sums, pivot determinism, Greeks round-trip | core-market, core-execution, greeks |
 | Fuzz | All three frame decoders, IPC framing, postback parsers | Adapters, ipc |
 | Contract fixture | Golden/malformed/boundary per broker; shared semantic conformance suite | Adapters |
 | Fault injection | Crash before/after commit/send/ACK, delayed ACK, cancel-fill race, token rotation, standby fencing, 429, TokenException | core-execution |
-| Performance | Budgets from [15](15-PERFORMANCE-ENGINEERING.md) on synthetic bursts | core-market, core-execution, ipc |
-| UI | Interaction, resync, accessibility, stalled client | ui |
+| Performance | Named paths L1–L9 and stage budgets from [15](15-PERFORMANCE-ENGINEERING.md) on the reference workload; allocation/syscall assertions; replay determinism | core-market, core-execution, ipc, control-api, ui |
+| UI | Interaction, resync, accessibility, stalled client, single-row rerender, chart adapter API drift against the pinned release | ui |
 
 ## CI gates
 
-fmt, clippy (deny warnings), unit/property/contract tests, fuzz smoke (bounded iterations), no-network guard, migration up/down, license inventory, SBOM, fixture hash check, performance smoke (fails on allocation in hot-path functions and on p99 regression > 20 % against the stored baseline). Full performance certification runs on the reference host, not in routine CI.
+fmt, clippy (deny warnings), property/contract-fixture checks, fuzz smoke (bounded iterations), no-network guard, migration up/down, license inventory, SBOM, fixture hash check, performance smoke (fails on allocation in hot-path functions and on p99 regression > 20 % against the stored baseline). Full performance certification runs on the reference host, not in routine CI.
 
 ## Definition of done per task
 
-A task is done when: code and tests merged; acceptance criteria in [18](18-GRANULAR-DEVELOPMENT-TASKS.md) demonstrably met; fixtures/evidence committed; telemetry for the component emits the required counters; documentation in this pack updated if a contract changed (schema version bump); no new external gate silently assumed verified.
+A task is done when: code merged (no unit tests required); acceptance criteria in [18](18-GRANULAR-DEVELOPMENT-TASKS.md) demonstrably met; fixtures/evidence committed; telemetry for the component emits the required counters; documentation in this pack updated if a contract changed (schema version bump); no new external gate silently assumed verified.
 
 ## Recommended starting sequence
 
@@ -111,7 +128,7 @@ A task is done when: code and tests merged; acceptance criteria in [18](18-GRANU
 5. E03: secret storage, credential metadata, role scopes, postback ingress with Zerodha checksum verification.
 6. E04/E05/E06 in parallel: capabilities/health → auth → feed decoder → subscriptions → snapshots → history → options data → updates → portfolio/funds → trading behind flags → conformance suite.
 7. E12: ChainBuilder and `greeks` crate alongside E06.
-8. E07 → E08 → E09 → E10 → E11 on fixtures; E16 read-only screens.
+8. E07 → E08 (including T-E08-09 multi-interval accumulators, T-E08-10 geometry) → E09 → E10 → E11 on fixtures; T-E17-09/10 path telemetry and budgets; E16 publisher → sync manager → chart adapter → read-only screens.
 9. E13 → E14 → fault suite; E16 execution screens.
 10. E18 gate register and commissioning procedures; E17 benchmark and drills.
 
@@ -130,7 +147,11 @@ Token renewal per broker (Dhan 24 h Web-origin renewal or re-login; Upstox befor
 - Default a missing restriction, entitlement or session rule to permissive; UNKNOWN blocks.
 - Sum last-traded quantity as volume; use cumulative/day-volume deltas with reset detection.
 - Mislabel Dhan 25-minute bars as 30-minute, or local aggregates as broker history.
-- Put a database query, JSON conversion, allocation or task spawn on the tick path.
+- Put a database query, JSON conversion, allocation, task spawn, lock or polling loop on the tick path.
+- Recalculate an indicator, sector statistic, rank or level set from scratch in response to a single event.
+- Call `setData` on a chart series for a live tick, recreate a chart on symbol/interval change, or poll REST for data the lane protocol already pushes.
+- Sum p99 values of independent stages and report the sum as an end-to-end p99.
+- Fabricate OHLC for a missing minute, interpolate a gap, or carry forward a close as a bar.
 - Create extra apps/accounts to evade per-user quotas, or multiply deep-feed caps by connection counts.
 - Mark a gate G01–G14 verified without evidence hash, reviewer and review date.
 - Expose a broker token, PIN, TOTP or `api_secret` to the browser, logs, crash dumps or analytics storage.
