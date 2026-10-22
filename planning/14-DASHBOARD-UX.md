@@ -12,19 +12,19 @@ The interface makes market opportunity, data quality and account risk visible to
 | Live stock scanner | Detector, direction, evidence, age, quality, liquidity | Configure scanner filters; empty state explains no qualifying setup |
 | Stock chart | Candles, volume, source/adjustment, gaps, levels, scanner markers | Interval/source selection; corrected bars marked |
 | Futures/options scanner | Contract, expiry, lot, OI/IV, basis, liquidity, eligibility | Select contract; expired/unmapped rows disabled |
-| Option chain | Strike, CE/PE price/book/OI/IV/Greeks, field age, underlying | Moneyness/delta filters; missing values shown as unavailable |
+| Option chain | Strike, CE/PE price/book/OI/IV/Greeks with source badge (PROVIDER or LOCAL_MODEL), field age, underlying | Moneyness/delta filters; missing values shown as unavailable |
 | Opportunities | Ranked score components, entry/stop/target hypotheses, cost/risk, expiry | Inspect or prepare order; expired setup cannot be reused silently |
 | Order ticket | Explicit broker/account/product, units and lots, prices, protection, estimated margin | Preview then submit; server revalidation can reject stale preview |
 | Open orders | Child orders, ACK/state/fills, remaining quantity, pending mutations | Modify/cancel; unknown state visibly distinct from rejected |
 | Positions | Account/product units, P&L, mark age, protection and pending exits | Controlled close; exposure unresolved state prominent |
 | Risk/capital | Account budgets, funds age, reservations, drawdown, Greeks, global allocations | Halt/reduce controls with exact scope |
-| Broker settings | Token class/expiry, segments, static IP status, entitlement/capability evidence | Broker-managed authorization; never display secret values |
+| Broker settings (one tab per broker: Dhan, Upstox, Zerodha) | Token class/expiry and next-expiry countdown, segments, static IP status, entitlement/capability evidence, postback/webhook verification state, data-source role vs execution role | Broker-managed authorization (Dhan consent/TOTP, Upstox OAuth, Zerodha request-token login); never display secret values |
 | Scanner/strategy configuration | Parameter validation, dependency cost, allowed regimes, risk allocation | Version preview/activate; warming state after change |
 | Health/performance | Source coverage, queue ages, decoder errors, latency distributions, reconciliation | Drill into incident/runbook; no false green aggregate |
 
 ## Information hierarchy and accessibility
 
-Persistent top strip shows active data source(s), selected execution account, market phase and global trading mode. A source label and execution account label must remain distinct. Red/green never carries meaning alone: signed values, arrows, text and patterns support color-vision differences. Keyboard navigation, visible focus, semantic labels and readable table alternatives are acceptance requirements.
+Persistent top strip shows active data source(s) per instrument group, selected execution account (broker + account), market phase from the session engine, and global trading mode. A source label and execution account label must remain distinct; with three brokers available, the ticket always names the broker that will receive the order. Red/green never carries meaning alone: signed values, arrows, text and patterns support color-vision differences. Keyboard navigation, visible focus, semantic labels and readable table alternatives are acceptance requirements.
 
 Desktop uses main analytical area and optional account/risk side panel. Tablet collapses secondary panels. Mobile prioritizes positions, risk and order status; dense chain tables scroll horizontally with pinned strike/side columns. Large charts/heatmaps must not prevent access to emergency controls. Responsive behavior changes presentation, not risk checks.
 

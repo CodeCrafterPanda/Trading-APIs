@@ -1,6 +1,6 @@
 # Regime classification and opportunity ranking
 
-The engine describes current conditions and ranks feasible setups. It is deterministic, configurable and explainable. It does not force trades, promise daily activity or treat a score as a probability of profit. Inputs come from [07](07-SECTOR-HEATMAP.md), [08](08-MARKET-SCANNER-CATALOG.md) and the quality contracts.
+The engine describes current conditions and ranks feasible setups. It is deterministic, configurable, explainable and broker-agnostic. Inputs come from [07](07-SECTOR-HEATMAP.md), [08](08-MARKET-SCANNER-CATALOG.md) and the quality contracts; an empty opportunity set is a valid output (C6).
 
 ## Regime state vector
 
@@ -8,7 +8,7 @@ Represent regime as several axes rather than one mutually exclusive label: direc
 
 Initial direction classifier uses broad-index 5/15-minute return, EMA9/21 alignment, market breadth and weighted sector participation. Normalize each to [-1,1]. D=0.35 trend +0.25 return +0.25 breadth +0.15 sector participation. Enter BULLISH at D≥0.4 for three 1-second evaluations; BEARISH at D≤−0.4. Exit directional states inside ±0.25 for three evaluations. SIDEWAYS requires abs(D)<0.2 plus low trend-efficiency and complete inputs; conflicts become MIXED.
 
-Volatility uses current realized-volatility percentile against comparable valid live-context history: LOW below 20th, HIGH above 80th; exit at 30th/70th to reduce oscillation. Structure uses confirmed scanner events: active high-quality breaks, trend continuation or reversal. These thresholds are proposed defaults requiring live operational review, not empirical profitability claims.
+Volatility uses current realized-volatility percentile against comparable valid live-context history: LOW below 20th, HIGH above 80th; exit at 30th/70th to reduce oscillation. Structure uses confirmed scanner events: active high-quality breaks, trend continuation or reversal.
 
 RegimeSnapshot records id/version, scope, effective_at, axes, component values, data ages, confidence, coverage, configuration version and transition reason. Market-wide and sector/instrument regimes remain distinct. A stock-specific reversal can coexist with bullish market direction.
 
@@ -44,7 +44,7 @@ Each feature is transformed to [0,1] through explicit direction-aware percentile
 
 S=100×sum(w_j f_j) over permitted components. Mandatory missing features invalidate. Optional missing features can renormalize weights only when profile allows it and maximum missing weight≤0.15; reduce confidence by retained weight. Directional features invert for bearish profiles; non-directional quality does not.
 
-Group scanner evidence into price, structure, volume, sector, volatility and derivatives families. Cap each family's contribution and select strongest nonredundant evidence. SC01 top gainers, SC03 acceleration and SC09 trend are correlated price evidence, not three independent confirmations. Confidence Q is the minimum mandatory quality plus explicit confirmation/coverage factors, never a success probability.
+Group scanner evidence into price, structure, volume, sector, volatility and derivatives families. Cap each family's contribution (default maximum 0.35 of the evidence score per family) and select the strongest nonredundant evidence. SC01 top gainers, SC03 acceleration and SC09 trend are correlated price evidence, not three independent confirmations. Confidence Q is the minimum mandatory quality plus explicit confirmation/coverage factors.
 
 ## Continuous reevaluation
 
@@ -52,8 +52,8 @@ Maintain reverse dependency maps from instrument/sector/regime/account changes t
 
 Before intent creation and again before submission, revalidate quality, price region, session, risk, configuration and expiry. Durable expiry is UTC; runtime age uses monotonic time within its clock domain. Clock uncertainty beyond policy invalidates short-lived opportunities. A candle correction retracts analytical evidence but does not erase the original executed decision audit.
 
-Strategies declare allowed regimes, scanner combinations, entry/exit hypotheses, ranking profile, permitted instruments/accounts and risk budget. Strategy enablement is a versioned control action. Automated policy can choose the highest feasible opportunity while capital/risk remains available, but no fixed trade count or obligation to trade is imposed.
+Strategies declare allowed regimes, scanner combinations, entry/exit hypotheses, ranking profile, permitted instruments, execution account (any of the three brokers) and risk budget. Strategy enablement is a versioned control action. Automated policy selects the highest feasible opportunity while capital/risk remains available.
 
 ## Acceptance
 
-Hand-calculated fixtures prove component normalization, weight sum, missingness, family caps, bearish transforms and cost-adjusted feasibility. Transition tests prove hysteresis and UNKNOWN/MIXED handling. Event tests prove candidate deduplication, expiry, correction retraction and account changes invalidating actionable state. Complexity tests verify one instrument update only touches dependent candidates. Runtime decision latency follows [15](15-PERFORMANCE-ENGINEERING.md); a slow refresh publishes lag and disables affected automation.
+Hand-calculated fixtures prove component normalization, weight sum, missingness, family caps, bearish transforms and cost-adjusted feasibility. Transition tests prove hysteresis and UNKNOWN/MIXED handling. Event tests prove candidate deduplication, expiry, correction retraction and account changes invalidating actionable state. Complexity tests verify one instrument update only touches dependent candidates. Opportunity rescoring per affected candidate targets p99 ≤ 0.10 ms, inside the frame→decision budget in [15](15-PERFORMANCE-ENGINEERING.md); a slow refresh publishes lag and disables affected automation.

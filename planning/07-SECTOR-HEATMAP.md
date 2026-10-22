@@ -1,6 +1,6 @@
 # Sector intelligence and stock heatmaps
 
-Sector intelligence combines official index observations, dated constituent mappings and internally calculated breadth/momentum/liquidity measures. The UI must distinguish an official sector-index return from an equal-weight or custom-basket calculation. Broker feeds do not establish sector membership or official constituent weights.
+Sector intelligence combines official index observations, dated constituent mappings and internally calculated breadth/momentum/liquidity measures. The UI must distinguish an official sector-index return from an equal-weight or custom-basket calculation. **From brokers:** index LTP/previous close (any adapter; Dhan `IDX_I`, Upstox `NSE_INDEX|…`, Zerodha index packets carry no volume/depth), constituent LTP, previous close, cumulative volume/turnover, ATP, bid/ask. **Calculated internally:** everything in the metric table below, all rankings, breadth, RVOL baselines, rotation and leadership. No broker feed establishes sector membership or official constituent weights.
 
 ## Catalog and provenance
 
@@ -36,17 +36,17 @@ No division by zero, missing-as-zero or mixing source epochs. Benchmark can be b
 
 Each constituent owner sends ContributionChanged containing sector IDs, old/new return, breadth class, weight, RVOL, volatility contribution and version. Sector worker subtracts old/adds new sufficient statistics. Rank updates use ordered indexes at O(log S) for sectors and O(log N_sector) for stocks. Only membership changes or scheduled audits require a full sector rebuild.
 
-Maintain price-weight coverage, volume coverage, benchmark age and membership age separately. A proposed readiness threshold is 80% valid constituent weight/count for sector aggregate ranking; this is configurable per strategy and is a quality threshold, not a stock-universe cap. Below threshold show PARTIAL and prevent strategies requiring sector confirmation from executing.
+Maintain price-weight coverage, volume coverage, benchmark age and membership age separately. Default readiness threshold is 80% valid constituent weight/count for sector aggregate ranking, configurable per strategy. Below threshold show PARTIAL and prevent strategies requiring sector confirmation from executing.
 
 ## Configurable ranking profiles
 
 RankingProfile contains id/version, scope, direction, feature transforms, weights, hard gates, missing-data policy and update cadence. Transform features to comparable bounded scores using rolling robust median/MAD or cross-sectional percentiles. Store the transformation universe and minimum valid sample count. Insufficient samples make the feature unavailable, not an invented rank.
 
-An initial sector profile weights return 0.20, momentum 0.25, relative strength 0.25, breadth 0.20 and volume confirmation 0.10. These are proposed tunable defaults, not statistically proven predictors. Bearish profiles invert directional features while preserving liquidity/quality gates. Do not invert volatility mechanically; its desirability depends on the strategy.
+Default sector profile weights: return 0.20, momentum 0.25, relative strength 0.25, breadth 0.20, volume confirmation 0.10. Bearish profiles invert directional features while preserving liquidity/quality gates. Do not invert volatility mechanically; its desirability depends on the strategy.
 
 Stock profiles include return, RVOL, momentum, relative strength versus sector, distance/side of certified VWAP or labeled proxy, breakout quality, liquidity, volatility suitability, spread and confirmed structure. Hard spread/turnover/data gates run before score. Missing mandatory features invalidate ranking for execution; optional missing weights renormalize only when a profile explicitly permits it and reduce confidence.
 
-Every displayed score exposes component contributions, input age, coverage and profile version. Rank is ordinal preference, not a probability of profit. A stock can rank strongly within a weak sector; sector and stock contributions remain visible instead of hidden in one number.
+Every displayed score exposes component contributions, input age, coverage and profile version. A stock can rank strongly within a weak sector; sector and stock contributions remain visible instead of hidden in one number.
 
 ## Heatmap and drilldown behavior
 
@@ -58,4 +58,4 @@ Server publishes changed sector/stock rows at a proposed 5–10 Hz view cadence,
 
 ## Acceptance
 
-Use hand-calculated baskets to verify weighted/equal returns, breadth, missing coverage, zero denominators, membership changes and duplicated multi-sector members. Verify a single stock update changes only its sectors and affected ranks. Confirm official index return is never overwritten by a computed basket. At the declared load envelope, sector contribution processing targets p99 under 1 ms within the broader decision budget; UI rendering follows [14](14-DASHBOARD-UX.md). Licensing and current constituents remain explicit production evidence requirements.
+Use hand-calculated baskets to verify weighted/equal returns, breadth, missing coverage, zero denominators, membership changes and duplicated multi-sector members. Verify a single stock update changes only its sectors and affected ranks. Confirm official index return is never overwritten by a computed basket. At the declared load envelope, one constituent contribution update plus rank-index change targets p50 0.02 ms, p95 0.10 ms, p99 0.30 ms ([15](15-PERFORMANCE-ENGINEERING.md)); UI rendering follows [14](14-DASHBOARD-UX.md). Licensing and current constituents remain production evidence requirements (gate G09 in [16](16-SECURITY-AND-COMPLIANCE.md)).

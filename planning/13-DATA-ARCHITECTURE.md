@@ -31,8 +31,11 @@ erDiagram
 | master_version / version_id | source URL/hash, fetched_at, schema/normalizer versions, counts, quarantine | Immutable artifact reference |
 | sector / sector_id | namespace, benchmark, methodology/license evidence | Unique namespace/name version |
 | sector_membership / sector+instrument+effective_from | weight, effective_to, source version | No overlapping duplicate membership |
-| account / account_id | broker, external identity hash, segment/profile refs | Broker account identity unique; no secret value |
+| option_contract / instrument_id | underlying_id, expiry, strike atoms/scale, right, lot, source master versions per broker | Derived from masters; chain built from this table for brokers without a chain endpoint |
+| account / account_id | broker (DHAN\|UPSTOX\|ZERODHA), external identity hash, segment/profile refs | Broker account identity unique; no secret value |
 | credential_metadata / account+generation | secret_ref, origin/class, expiry, scopes, status | Generation monotonic; one active execution generation |
+| broker_capability / broker+account+scope+version | feature flags, limits_ref, evidence URL/hash, certified_at, expires_at, status | Effective-dated; unknown = not certified |
+| session_rule / exchange+segment+category+effective_from | phase schedule, allowed order types, cancel/modify flags, source version | Effective-dated; no overlapping active rules |
 | config_version / config_id+version | validated JSON document, hash, author/reason, effective time | Immutable after activation |
 | account_lease / account_id | owner_epoch, gateway_id, lease_until, fencing evidence | Single active owner; epoch strictly increases |
 | account_allocation / account+dimension+version | amount, encumbered, transfer state | Sum allocations≤global limit; serialized transfers |
@@ -58,6 +61,7 @@ Event envelope includes schema_version, event_id, kind, entity_id, source, sourc
 | depth_snapshots | instrument_id, received_at / trading date | Mode/depth levels and age; sampled retention |
 | candles | instrument_id, interval, origin, open_time, revision / month | OHLCV/OI, phase, quality, child digest |
 | features | instrument_id, feature_id, observed_at / date | Value, basis, input version, readiness |
+| chain_snapshots | underlying_id, expiry, snapshot_time / date | Per-strike CE/PE fields, IV/Greeks with model_source, coverage |
 | scanner_events | scanner_id, instrument_id, observed_at / date | Candidate revisions and evidence |
 | opportunity_versions | opportunity_id, revision / date | Components, feasibility, expiry/invalidation |
 | telemetry_rollups | service, metric, bucket / date | Histogram/count/health summaries |
@@ -86,7 +90,7 @@ These are proposed operational defaults, subject to data rights and applicable o
 
 Five-year broker audit obligations in exchange standards do not automatically determine every private application's legal duty; confirm the applicable policy. ClickHouse TTL executes through background merges, so monitor actual oldest retained data and storage. [NSE standards](https://nsearchives.nseindia.com/content/circulars/INVG67858.pdf), [ClickHouse TTL](https://clickhouse.com/docs/reference/engines/table-engines/mergetree-family/mergetree).
 
-Sizing formula: daily_bytes = mean_events_per_second × active_seconds × average_encoded_bytes × compression_ratio + indexes/metadata. Illustrative only: 20,000 events/s × 24,000s × 96 bytes = 46.08 GB raw/day; at 0.30 compressed ratio ≈13.82 GB/day before overhead. Depth, replicas and backups are additional. This rate is not measured broker traffic or a platform cap. Establish real rates during read-only commissioning and set capacity alarms at 60/75/85% with retention actions.
+Sizing formula: daily_bytes = mean_events_per_second × active_seconds × average_encoded_bytes × compression_ratio + indexes/metadata. Illustrative only: 20,000 events/s × 24,000 s × 96 bytes = 46.08 GB raw/day; at 0.30 compression ≈ 13.82 GB/day before overhead. Depth, replicas and backups are additional. Three concurrently connected brokers can triple ingest for overlapping instruments; store only the active source's observations in `market_observations` and sample alternates at ≤1 Hz for cross-provider audit. Establish real rates during read-only commissioning and set capacity alarms at 60/75/85% with retention actions.
 
 ## Durability, backup and restore
 
